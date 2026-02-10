@@ -11,10 +11,10 @@ use std::result;
 use std::os::unix::ffi::OsStrExt;
 
 use byteorder::BigEndian;
-use positioned_io::{ByteIo, ReadAt, ReadInt, Cursor};
+use positioned_io::{ByteIo, ReadAt, Cursor};
 
 use super::{Result, Error};
-use super::int::{is_multiple_of, padding_to_multiple, div_ceil, div_rem};
+use super::int::{padding_to_multiple, div_ceil, div_rem};
 use super::extension::{self, Extension, FeatureNameTable, UnknownExtension};
 use super::feature::{Feature, FeatureKind};
 
@@ -148,13 +148,13 @@ impl Header {
         if self.c.l1_size as u64 != self.l1_entries() {
             return Err(Error::FileFormat("bad L1 entry count".to_owned()));
         }
-        if !is_multiple_of(self.c.l1_table_offset, self.cluster_size()) {
+        if !self.c.l1_table_offset.is_multiple_of(self.cluster_size()) {
             return Err(Error::FileFormat("bad L1 offset".to_owned()));
         }
-        if !is_multiple_of(self.c.refcount_table_offset, self.cluster_size()) {
+        if !self.c.refcount_table_offset.is_multiple_of(self.cluster_size()) {
             return Err(Error::FileFormat("bad refcount offset".to_owned()));
         }
-        if !is_multiple_of(self.c.snapshots_offset, self.cluster_size()) {
+        if !self.c.snapshots_offset.is_multiple_of(self.cluster_size()) {
             return Err(Error::FileFormat("bad snapshots offset".to_owned()));
         }
         Ok(())
@@ -196,7 +196,7 @@ impl Header {
                 break;
             }
 
-            if len + io.position() > self.cluster_size() {
+            if len + io.get_ref().position() > self.cluster_size() {
                 // Don't try to read too much dynamic data!
                 return Err(Error::FileFormat("complete header too big for first cluster"
                     .to_owned()));
@@ -207,7 +207,9 @@ impl Header {
                 let ext = self.v3.extension(ext_code);
                 ext.read(&mut sub)?;
 
-                // Verify all is read.
+                // Verif
+                // y all is read.
+                #[allow(clippy::unbuffered_bytes)]
                 let remain = sub.bytes().count();
                 if remain > 0 {
                     return Err(Error::FileFormat(format!("{} bytes left after reading \
@@ -246,11 +248,11 @@ impl Header {
         self.v3.autoclear.set(io.read_u64()?);
         self.v3.refcount_order = io.read_u32()?;
         self.v3.header_length = io.read_u32()?;
-        let actual_length = io.position();
+        let actual_length = io.get_ref().position();
         self.read_extensions(io)?;
         if self.c.backing_file_offset != 0 {
-            println!("{}, {}", self.c.backing_file_offset, io.position());
-            if self.c.backing_file_offset != io.position() {
+            println!("{}, {}", self.c.backing_file_offset, io.get_ref().position());
+            if self.c.backing_file_offset != io.get_ref().position() {
                 return Err(Error::FileFormat("backing file offset not consistent with extensions"
                     .to_owned()));
             }
@@ -268,24 +270,24 @@ impl Header {
         if self.v3.refcount_order > 6 {
             return Err(Error::FileFormat(format!("bad refcount_order {}", self.v3.refcount_order)));
         }
-        if self.v3.header_length as u64 != io.position() {
+        if self.v3.header_length as u64 != io.get_ref().position() {
             return Err(Error::FileFormat(format!("header is {} bytes, file claims {}",
-                                                 io.position(),
+                                                 io.get_ref().position(),
                                                  self.v3.header_length)));
         }
         if actual_length != HEADER_LENGTH_V3 as u64 {
             return Err(Error::Internal(format!("header must be {} bytes, but we read {}",
                                                HEADER_LENGTH_V3,
-                                               io.position())));
+                                               io.get_ref().position())));
         }
-        if io.position() > self.cluster_size() {
+        if io.get_ref().position() > self.cluster_size() {
             return Err(Error::FileFormat("complete header too big for first cluster".to_owned()));
         }
 
         Ok(())
     }
 
-    pub fn read<I: ReadAt>(&mut self, io: &mut ByteIo<I, BigEndian>) -> Result<()> {
+    pub fn read<I: ReadAt>(&mut self, mut io: &mut ByteIo<I, BigEndian>) -> Result<()> {
         // The headers are best read sequentially, rather than positioned.
         // So get a sequential cursor to read from.
         let curs = Cursor::new(io.deref_mut());

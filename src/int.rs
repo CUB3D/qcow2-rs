@@ -23,8 +23,3 @@ pub fn padding_to_multiple(a: u64, b: u64) -> usize {
     };
     r as usize
 }
-
-// Check if `a` is a multiple of `b`.
-pub fn is_multiple_of(a: u64, b: u64) -> bool {
-    a % b == 0
-}

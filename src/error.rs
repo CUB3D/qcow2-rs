@@ -1,6 +1,6 @@
 use std::error::Error as StdError;
 use std::fmt::{self, Display, Formatter};
-use std::io::{self, ErrorKind};
+use std::io::{self};
 use std::sync::PoisonError;
 
 /// The error type for Qcow2 operations.
@@ -66,6 +66,6 @@ impl Display for Error {
 
 impl From<Error> for io::Error {
     fn from(err: Error) -> io::Error {
-        io::Error::new(ErrorKind::Other, err)
+        io::Error::other(err)
     }
 }

@@ -1,10 +1,8 @@
 use std::borrow::Cow;
 use std::fmt::{self, Debug, Formatter};
-use std::io::ErrorKind;
+use std::io::{ErrorKind, Read};
 use std::result;
-
-use positioned_io::ReadInt;
-
+use byteorder::ReadBytesExt;
 use super::{Result, Error};
 use super::feature::{FeatureKind, FEATURE_KIND_COUNT};
 
@@ -13,8 +11,9 @@ pub const EXT_CODE_FEATURE_NAME_TABLE: u32 = 0x6803f857;
 pub const EXT_CODE_NONE: u32 = 0;
 
 pub trait Extension: Debug {
+    #[expect(dead_code)]
     fn extension_code(&self) -> u32;
-    fn read(&mut self, io: &mut dyn ReadInt) -> Result<()>;
+    fn read(&mut self, io: &mut dyn Read) -> Result<()>;
 }
 
 
@@ -34,7 +33,7 @@ impl Extension for UnknownExtension {
     fn extension_code(&self) -> u32 {
         self.code
     }
-    fn read(&mut self, io: &mut dyn ReadInt) -> Result<()> {
+    fn read(&mut self, io: &mut dyn Read) -> Result<()> {
         io.read_to_end(&mut self.data)?;
         Ok(())
     }
@@ -57,7 +56,7 @@ pub struct FeatureName {
 #[derive(Debug, Default)]
 pub struct FeatureNameTable(Vec<FeatureName>);
 impl FeatureNameTable {
-    pub fn name(&self, kind: FeatureKind, bit: u8) -> Cow<String> {
+    pub fn name(&self, kind: FeatureKind, bit: u8) -> Cow<'_, str> {
         for n in &self.0 {
             if n.kind == kind as u8 && n.bit == bit {
                 return Cow::Borrowed(&n.name);
@@ -70,7 +69,7 @@ impl Extension for FeatureNameTable {
     fn extension_code(&self) -> u32 {
         EXT_CODE_FEATURE_NAME_TABLE
     }
-    fn read(&mut self, io: &mut dyn ReadInt) -> Result<()> {
+    fn read(&mut self, io: &mut dyn Read) -> Result<()> {
         loop {
             match io.read_u8() {
                 Err(ref e) if e.kind() == ErrorKind::UnexpectedEof => break,

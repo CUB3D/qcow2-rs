@@ -2,8 +2,8 @@ use std::cmp::min;
 use std::io;
 use std::mem::size_of;
 
-use byteorder::BigEndian;
-use positioned_io::{ByteIo, ReadAt, ReadIntAt, Size};
+use byteorder::{BigEndian};
+use positioned_io::{ByteIo, ReadAt, ReadBytesAtExt, Size};
 
 use super::{Error, Qcow2, Result};
 
@@ -16,6 +16,7 @@ pub enum L1Entry {
     Empty,
     Standard {
         pos: u64,
+        #[expect(dead_code)]
         cow: bool,
     },
 }
@@ -31,12 +32,16 @@ pub enum L2Entry {
     Empty,
     Standard {
         pos: u64,
+        #[expect(dead_code)]
         cow: bool,
         zero: bool,
     },
     Compressed {
+        #[expect(dead_code)]
         pos: u64,
+        #[expect(dead_code)]
         cow: bool,
+        #[expect(dead_code)]
         size: u64,
     },
 }
@@ -48,15 +53,16 @@ impl<I> Qcow2<I>
     /// Get a Reader for the main virtual disk.
     ///
     /// This allows data to be read from inside the virtual disk image.
-    pub fn reader(&self) -> Result<Reader<I>> {
+    pub fn reader(&self) -> Result<Reader<'_, I>> {
         let offset = self.header.c.l1_table_offset;
         let reader = Reader::new(self, offset)?;
         Ok(reader)
     }
 
-    fn l1_entry_read<T: ReadIntAt>(&self, l1: &T, l1_l2_idx: u64) -> Result<L1Entry> {
+
+    fn l1_entry_read<T: ReadAt>(&self, l1: &T, l1_l2_idx: u64) -> Result<L1Entry> {
         let offset = l1_l2_idx * size_of::<u64>() as u64;
-        let entry = l1.read_u64_at(offset)?;
+        let entry = l1.read_u64_at::<BigEndian>(offset)?;
         if entry & L1_RESERVED != 0 {
             return Err(Error::FileFormat("reserved bit used in L1 entry".to_owned()));
         }
@@ -111,7 +117,7 @@ impl<I> Qcow2<I>
             }
         })
     }
-    fn l2_entry_read<T: ReadIntAt>(&self, l1: &T, guest_offset: u64) -> Result<L2Entry> {
+    fn l2_entry_read<T: ReadAt>(&self, l1: &T, guest_offset: u64) -> Result<L2Entry> {
         let (l1_l2_idx, l2_block_idx, _) = self.header.guest_offset_info(guest_offset);
         let l1_entry = self.l1_entry_read(l1, l1_l2_idx)?;
         Ok(match l1_entry {
@@ -143,7 +149,7 @@ impl<I> Qcow2<I>
         }
         Ok(())
     }
-    fn guest_read<T: ReadIntAt>(&self, l1: &T, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
+    fn guest_read<T: ReadAt>(&self, l1: &T, pos: u64, buf: &mut [u8]) -> io::Result<usize> {
         // Check for reads past EOF.
         if pos >= self.header.guest_size() {
             return Ok(0);
